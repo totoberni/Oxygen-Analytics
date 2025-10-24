@@ -1,0 +1,8 @@
+# Avoid exporting massive datasets to Git
+*.csv
+*tar.gz
+*csv.gz
+*.pkl
+
+# Avoid committing secrets
+.env

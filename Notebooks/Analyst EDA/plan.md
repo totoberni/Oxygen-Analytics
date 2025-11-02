@@ -1,3 +1,4 @@
+
 # Financial Sentiment EDA and Correlation Analysis: Project Roadmap
 
 ## 1. Project Overview
@@ -25,80 +26,84 @@ This phase focuses on creating clean, standardized, and unified datasets. The pr
     2.  Check that the installed `xgboost` package was built with CUDA support.
     3.  Run a small test `fit()` command to confirm the `xgboost` library can successfully initialize the GPU at runtime.
 
-**2.2. Data Loading and Initial Inspection:**
-*   **Action:** Load the company sentiment data from the `final_company_dfs.pkl` file into a dictionary of DataFrames (`company_dfs_raw`).
-*   **Action:** Load the `Stockprices.csv` file into a separate DataFrame (`stocks_df_raw`).
-*   **Action:** Perform an initial inspection of all raw dataframes to check for missing dates, `NaN` values, and `0` values that represent missing data.
+**2.2. Data Loading and Checkpointing:**
+*   **Action:** Load the company sentiment data from `final_company_dfs.pkl` and stock price data from `Stockprices.csv`.
+*   **Action:** Create separate checkpoint cells to export the final cleaned and imputed dataframe dictionaries (`company_dfs_final` and `stock_dfs_final`) as `.pkl` files.
+*   **Action:** Implement a "resume" cell at the beginning of Phase 2 to load these checkpointed `.pkl` files, allowing the user to bypass the entire cleaning pipeline.
 
 **2.3. Sentiment Dataset Imputation Strategy:**
-*   A two-tiered imputation strategy is applied to the company sentiment data:
-    *   **Tier 1 (Simple Imputation):** For "less critical" features like `article_volume` and `market_average_sentiment`, `0` values are replaced with `NaN` and then imputed using forward-fill (`ffill`), followed by a backward-fill (`bfill`) to handle any leading `NaN`s.
-    *   **Tier 2 (Advanced Imputation):** For "very critical" features (`average_news_sentiment`, `mspr`), a sophisticated model-based approach is used.
+*   A two-tiered imputation strategy is applied:
+    *   **Tier 1 (Simple Imputation):** For `article_volume` and `market_average_sentiment`, `0` values are replaced with `NaN` and imputed using `ffill` and `bfill`.
+    *   **Tier 2 (Advanced Imputation):** For `average_news_sentiment` and `mspr`, a sophisticated model-based approach is used.
 
 **2.4. Advanced Imputation Workflow:**
-*   **Action: Subclass `IterativeImputer`:** An "Architect's Solution" is implemented by creating a new `EarlyStoppingIterativeImputer` class that inherits from `sklearn.impute.IterativeImputer`. This provides a stable, reusable, and robust way to enable `early_stopping_rounds` for the internal estimator without fragile monkey-patching.
-*   **Action: Hyperparameter Tuning:** A `tune_xgboost_hyperparameters` function is defined. It uses `RandomizedSearchCV` with 3-fold cross-validation on the non-missing data subset to find the optimal hyperparameters for the `XGBRegressor` estimator for each specific company.
-*   **Action: Master Imputation Loop:** A master loop iterates through each company:
-    1.  Finds the best hyperparameters by tuning the estimator on a proxy task.
-    2.  Instantiates a dedicated, uniquely tuned `EarlyStoppingIterativeImputer` for that company using the best parameters.
-    3.  Applies the tuned imputer to the real, incomplete dataset.
-    4.  Stores the final, fully imputed DataFrame in the `company_dfs_final` dictionary and generates a report.
+*   **Action: Hyperparameter Tuning:** A `tune_xgboost_hyperparameters` function uses `RandomizedSearchCV` to find the optimal hyperparameters for the `XGBRegressor` estimator for each specific company.
+*   **Action: Master Imputation Loop:** A master loop iterates through each company, creating a dedicated, uniquely tuned `IterativeImputer` with early stopping to fill missing values.
 
 **2.5. Stock Price Dataset Cleaning and Standardization:**
-*   **Action: Clean and Split:** The wide-format `stocks_df_raw` is processed. A function cleans the string-based price and volume data into numeric types. The data is then split into three separate, standardized DataFrames (one for each ticker) and stored in the `stock_dfs_cleaned` dictionary.
-*   **Action: Align and Impute:** Each cleaned stock DataFrame is re-indexed to a master date range (`2018-01-01` to `2024-12-31`). The resulting `NaN` values for non-trading days are imputed using `ffill` and `bfill`. The final data is stored in the `stock_dfs_final` dictionary.
+*   **Action: Clean and Split:** A function cleans the string-based price and volume data into numeric types. The wide-format `stocks_df_raw` is then split into three separate, standardized DataFrames.
+*   **Action: Align and Impute:** Each stock DataFrame is re-indexed to a master date range (`2018-01-01` to `2024-12-31`). The resulting `NaN` values for non-trading days are imputed using `ffill` and `bfill`.
 
 ---
 
 ## 3. Phase 2: Exploratory Data Analysis (EDA)
 
-This phase focuses on understanding the characteristics of our features and their relationship with stock prices, which is critical for downstream modeling. The strategy is divided into two main components, repeated for each company (`AAPL`, `NVDA`, `GOOGL`).
+This phase visually explores feature characteristics and their relationships with stock prices. The strategy is repeated for each company (`AAPL`, `NVDA`, `GOOGL`).
 
 **3.1. Univariate Analysis: Understanding Feature Distributions**
-*   **Objective:** To understand the statistical properties and "personality" of each key feature.
-*   **Features to Analyze:** `average_news_sentiment`, `market_average_sentiment`, `mspr`, `article_volume`, `10-K_sentiment`, `10-Q_sentiment`.
-*   **Actions (for each feature):**
-    1.  **Histogram:** Plot a histogram to visualize the value distribution (e.g., skewed, normal, bimodal).
-    2.  **Box Plot:** Use a box plot to identify the median, interquartile range (IQR), and outliers, which often correspond to significant real-world events.
-    3.  **Descriptive Statistics:** Compute `.describe()` to get precise numerical summaries (mean, std, min, max, quartiles).
+*   **Objective:** To understand the statistical properties of each key feature.
+*   **Actions:** For each feature, generate a histogram, a box plot, and descriptive statistics.
 
 **3.2. Bivariate Time-Series Analysis: Finding Predictive Relationships**
-*   **Objective:** To visually inspect how features co-move with the stock price over time. This is crucial for identifying potential lead-lag relationships for the XGBoost model.
-*   **Methodology:** A series of time-series plots with a shared date axis will be generated for each company.
-*   **Key Plots to Generate:**
-    1.  **Core Sentiment vs. Price:** Plot `average_news_sentiment` against the stock's `Close` price to find correlations between public narrative and price trends.
-    2.  **Attention vs. Price & Volatility:** Plot `article_volume` against the `Close` price and `daily_return` to test the hypothesis that news volume spikes precede price volatility.
-    3.  **Insider vs. Public Sentiment:** Plot `mspr` (insider) against `average_news_sentiment` (public) to identify potential divergences where "smart money" moves before the public narrative.
-    4.  **Corporate vs. Public Sentiment:** Plot `10-Q_sentiment` against `average_news_sentiment` to analyze how daily sentiment reacts following official quarterly filings.
+*   **Objective:** To visually inspect how sentiment features co-move with stock price and volatility over time.
+*   **Methodology:** Merge the sentiment and stock dataframes for each company. Generate a series of time-series plots.
 
 ---
 
-## 4. Phase 3: Correlation Analysis
+## 4. Phase 3: Multi-Horizon Correlation and Predictive Power Analysis
 
-This phase aims to quantify the relationships between our sentiment features and the stock price.
+This phase moves beyond visual EDA to **quantify** the predictive power of sentiment features across multiple investment time horizons. The goal is to identify the most promising features, their optimal time lags, and the timeframes over which they are most effective.
 
-**4.1. Target Variable Engineering:**
-*   **Action:** Create a `daily_return` column, calculated as `Close.pct_change()`. This will be our primary target for correlation.
+**4.1. Engineering a Spectrum of Predictive Targets:**
+*   **Objective:** To create a rich set of target variables that capture future returns and volatility over short, medium, and long-term windows.
+*   **Actions:**
+    1.  **Consolidate Data:** Merge the final sentiment and stock data for each company into a unified `eda_dfs` dictionary.
+    2.  **Define Horizons:** Establish a set of lookahead periods: `[1D, 1M, 3M, 6M, 12M, 18M, ..., 84M]`.
+    3.  **Engineer Return Targets:** For each horizon `n`, create a `Future_Return_{n}` column, calculating the total percentage return between day `t` and day `t + n_months`.
+    4.  **Engineer Volatility Targets:** For each horizon `n`, create a `Future_Volatility_{n}` column, calculating the rolling standard deviation of `daily_return` over the next `n` months.
 
-**4.2. Correlation Matrix Heatmap:**
-*   For each company's final merged DataFrame, compute the Pearson correlation matrix.
-*   **Action:** Visualize this matrix as a heatmap to identify promising linear relationships.
+**4.2. Systematic Multi-Horizon Lag Analysis:**
+*   **Objective:** To discover the optimal predictive lag for every combination of sentiment feature and multi-horizon target.
+*   **Methodology:**
+    1.  **Define Lag Function:** Create a `calculate_lag_correlations` function that iterates through a range of time lags (e.g., `t-5` to `t+5` days), calculating both **Pearson** and **Spearman** correlation for each feature against the full suite of future targets.
+*   **Action:** Run this systematic analysis for each company (`AAPL`, `NVDA`, `GOOGL`).
 
-**4.3. Scatter Plots:**
-*   **Action:** For the features that show the highest correlation with `daily_return`, create scatter plots to visually inspect the relationship.
+**4.3. "Meta-Analysis" Visualization and Interpretation:**
+*   **Objective:** To distill the complex correlation results into clear, high-level summary visualizations.
+*   **Methodology:**
+    1.  **Define Heatmap Function:** Create a `plot_peak_correlation_heatmap` function. This function finds the maximum absolute correlation for each feature-horizon pair across all tested lags and visualizes the result as a heatmap. Crucially, it must safely handle all-NaN groups to prevent errors.
+    2.  **Define Lag Curve Function:** Create a `plot_lag_curves` function to generate "drill-down" plots for specific feature/horizon combinations.
+*   **Actions:**
+    1.  **Generate Peak Correlation Heatmaps:** For each company, use the heatmap function to generate two primary visualizations (one for Future Returns, one for Future Volatility). Each cell will be annotated with the peak correlation value and the optimal lag at which it occurred (e.g., "-0.89 @ -5d").
+    2.  **Drill Down with Lag Plots:** Based on the most interesting signals from the heatmaps, use the lag curve function to generate detailed plots for specific combinations (e.g., `10-Q_sentiment` vs. long-term returns).
+
+**4.4. Synthesis and Action Plan:**
+*   **Objective:** To summarize the multi-horizon findings into a precise feature engineering blueprint.
+*   **Action:** For each company, create a summary markdown cell structured by investment horizon (Short-Term, Medium-Term, Long-Term, Volatility). This will list the most predictive features, their peak correlation scores, their optimal lags, and a brief interpretation of the strategic implication.
 
 ---
 
 ## 5. Phase 4: Feature Engineering and Next Steps
 
-Based on the insights from EDA and Correlation Analysis, we will define a concrete plan for feature engineering to improve the predictive power of our XGBoost models.
+Based on the precise, quantitative insights from the Multi-Horizon Correlation Analysis in Phase 3, we will define a highly targeted feature engineering plan.
 
-**5.1. Initial Feature Engineering Plan:**
-*   **Sentiment Moving Averages:** Calculate 7-day, 30-day, and 90-day rolling averages for key sentiment features.
-*   **Sentiment Momentum & Volatility:** Calculate rolling standard deviation and rate-of-change.
-*   **Interaction Features:** Create features like `sentiment_x_volume`.
-*   **Sentiment Spread:** Isolate company sentiment from market sentiment (`average_news_sentiment - market_average_sentiment`).
+**5.1. Data-Driven Feature Engineering Plan:**
+*   **Objective:** Create new features that capture the predictive signals discovered in Phase 3.
+*   **Example Actions:**
+    *   **Lagged Features:** If `article_volume` at `t-2` was found to be predictive of `Future_Return_3M`, create a new `article_volume_lag_2` column.
+    *   **Rolling Averages on Predictive Lags:** If `average_news_sentiment` at `t-3` is significant for the 6-month horizon, create 7-day and 30-day rolling averages of `average_news_sentiment_lag_3`.
+    *   **Momentum Indicators:** Calculate rolling standard deviation (`volatility`) and rate-of-change (`momentum`) for the most promising feature/lag/horizon combinations.
 
 **5.2. Next Steps:**
-*   The results from Phase 3 will guide which of these engineered features we prioritize.
-*   The final, feature-rich datasets will be prepared for input into the XGBoost training pipeline.
+*   The results from Phase 3 will dictate exactly which of these engineered features we prioritize for each investment horizon.
+*   The final, feature-rich datasets will be prepared for input into the XGBoost training pipeline, with a clear understanding of why each feature was created and which prediction horizon it is best suited for.

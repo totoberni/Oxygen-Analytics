@@ -54,3 +54,5 @@ This is the final output of the project—a user-facing dashboard that synthesiz
 *   **6.4. Context Layer ("What If"):**
     *   **Historical Analogs:** Programmatically scans historical data to find past periods with a similar signal profile and displays the subsequent performance.
     *   **Example Output:** "This signal profile is similar to Q2 2020, which was followed by a +150% return over the next 24 months."
+
+    

@@ -1,4 +1,3 @@
-
 # Financial Sentiment EDA and Correlation Analysis: Project Roadmap
 
 ## 1. Project Overview
@@ -93,17 +92,70 @@ This phase moves beyond visual EDA to **quantify** the predictive power of senti
 
 ---
 
-## 5. Phase 4: Feature Engineering and Next Steps
+## 5. Phase 5: Stakeholder Visualization & Insight Validation
 
-Based on the precise, quantitative insights from the Multi-Horizon Correlation Analysis in Phase 3, we will define a highly targeted feature engineering plan.
+**Objective:** To translate the quantitative findings from the correlation analysis (Phase 3) into compelling, easy-to-understand visualizations for business stakeholders (hedge fund managers). This phase will validate the identified signals and build the business case for the subsequent feature engineering phase.
 
-**5.1. Data-Driven Feature Engineering Plan:**
-*   **Objective:** Create new features that capture the predictive signals discovered in Phase 3.
-*   **Example Actions:**
-    *   **Lagged Features:** If `article_volume` at `t-2` was found to be predictive of `Future_Return_3M`, create a new `article_volume_lag_2` column.
-    *   **Rolling Averages on Predictive Lags:** If `average_news_sentiment` at `t-3` is significant for the 6-month horizon, create 7-day and 30-day rolling averages of `average_news_sentiment_lag_3`.
-    *   **Momentum Indicators:** Calculate rolling standard deviation (`volatility`) and rate-of-change (`momentum`) for the most promising feature/lag/horizon combinations.
+**5.1. Core Logic: Isolate Filing Events**
+*   **Objective:** The sentiment data is forward-filled. We must first identify the exact dates on which new filings were released.
+*   **Action:** Create a reusable Python function `get_filing_dates(df, sentiment_column)`.
+*   **Methodology:** This function will take a company DataFrame and a sentiment column name (e.g., `'10-Q_sentiment'`) as input. It will identify event dates by finding where the sentiment score `.diff() != 0`. It must return a new DataFrame containing only the filing dates and their corresponding non-NaN sentiment scores.
 
-**5.2. Next Steps:**
-*   The results from Phase 3 will dictate exactly which of these engineered features we prioritize for each investment horizon.
-*   The final, feature-rich datasets will be prepared for input into the XGBoost training pipeline, with a clear understanding of why each feature was created and which prediction horizon it is best suited for.
+**5.2. Visualization Part 1: Event-Study Charts for Short-Term Price Impact**
+*   **Objective:** Visualize the average stock price trajectory around filing events, segmented by sentiment, to answer: "How does the market react in the days immediately following a filing, based on its sentiment?"
+*   **Actions:**
+    1.  **Define a master plotting function:** `plot_event_study(company_df, filing_events_df, filing_type, stock_price_col='Close')`.
+    2.  **Data Preparation (within function):** For each filing event date `t`:
+        *   Slice a 21-day window (`t-10` to `t+10`) from the main `company_df`.
+        *   **Normalize Price:** Normalize the stock price column by dividing all values in the window by the price at `t-1` and multiplying by 100. This converts the price to a common scale showing percentage change relative to the day before the event.
+    3.  **Sentiment Grouping (within function):**
+        *   Use `pd.qcut` to divide all filing events into three quantiles based on their sentiment scores: 'Low Sentiment' (bottom 33%), 'Mid Sentiment' (middle 34%), and 'High Sentiment' (top 33%).
+    4.  **Aggregation (within function):**
+        *   For each sentiment group, calculate the `mean` of all the normalized price series at each day from -10 to +10. This produces the average trajectory for each group.
+    5.  **Visualization (within function):**
+        *   Plot the three average trajectories on a single chart using `matplotlib` or `seaborn`.
+        *   Use a clear, intuitive color scheme (e.g., Red for Low, Gray for Mid, Green for High).
+        *   Add a vertical dashed line at `x=0` labeled "Filing Date".
+        *   Set a descriptive title, legend, and axis labels (`Days Relative to Filing`, `Normalized Price (Day -1 = 100)`).
+*   **Execution:** Create a loop to execute this plotting function for each company (AAPL, NVDA, GOOGL) and each filing type (10-K, 10-Q, 8-K), generating 9 distinct event-study charts.
+
+**5.3. Visualization Part 2: Scatter Plots for Long-Term ROI & Volatility Impact**
+*   **Objective:** Visually confirm the strong, long-term correlations discovered in Phase 3 to answer: "How predictive is filing sentiment for multi-year returns and volatility?"
+*   **Actions:**
+    1.  **Identify Key Relationships:** From the Phase 3 markdown summaries, codify the most powerful feature/target pairs into a configuration list. Example: `[('NVDA', '10-Q_sentiment', 'Future_Return_72M'), ('GOOGL', 'mspr', 'Future_Volatility_48M')]`.
+    2.  **Define a master plotting function:** `plot_correlation_scatter(company_df, filing_events_df, feature_col, target_col)`.
+    3.  **Data Preparation (within function):** Use the `filing_events_df` (from 5.1) to get the specific dates and sentiment scores. For each of these dates, retrieve the corresponding future outcome value (e.g., `Future_Return_72M`) from the main `company_df`.
+    4.  **Visualization (within function):**
+        *   Use `seaborn.regplot` to create a scatter plot of the `feature_col` (sentiment) vs. the `target_col` (outcome). This function automatically includes the regression line and a confidence interval, which is ideal for this use case.
+        *   Set a clear title that includes the company, feature, and target (e.g., "NVDA: 10-Q Sentiment vs. 72-Month Future Return").
+*   **Execution:** Iterate through the list of key relationships, calling the plotting function for each one.
+
+**5.4. Synthesis and Final Reporting**
+*   **Action:** Create a final summary markdown cell in the `AnalystSentimentEDA.ipynb` notebook.
+*   **Content:** This cell will display the most impactful charts generated in this phase. Each chart will be accompanied by a concise, business-friendly takeaway that directly references the visualization and its strategic implication (e.g., "As seen below, pessimistic 10-Q reports for NVDA have historically preceded periods of significant long-term outperformance, highlighting a powerful contrarian signal.").
+
+---
+## 6. Phase 6: Prescriptive Strategy Rulebook Generation
+
+**Objective:** To translate the quantitative findings from the correlation analysis into a data-driven, actionable investment rulebook for each company. This rulebook will provide clear, evidence-based instructions for when to act, what action to take, and what outcomes (ROI, Volatility, Probability of Gain) can be expected for various investment horizons.
+
+**Core Concept: From Correlation to Conditional Probability**
+*   While Phase 3 identified *that* a relationship exists between a signal (e.g., `10-K_sentiment`) and a future outcome (e.g., `Future_Return_24M`), this phase determines the *nature and probability* of that outcome.
+*   We shift from asking "Are these related?" to asking "**Given that we observe signal X, what is the historical probability distribution of outcome Y?**"
+*   By segmenting a signal into quantiles (e.g., Top 10%, Bottom 10%), we can analyze the specific historical performance of trades made under those conditions. This allows us to calculate the empirical `Probability of Gain`, `Average ROI`, and `Average Volatility` for each condition, forming the statistical foundation of our rulebook.
+
+**Systematic Implementation Plan**
+1.  **6.1: Consolidate and Filter Potent Signals**:
+    *   **Action:** Aggregate the correlation results from all three companies (`AAPL`, `NVDA`, `GOOGL`) into a single master DataFrame.
+    *   **Action:** Systematically filter this DataFrame to isolate "potent signals," defined as `(Feature, Lag, Target)` triplets that exceed a specific Spearman correlation threshold (e.g., `> 0.20`) and match our desired investment horizons (`12M` to `84M`).
+2.  **6.2: Define the Conditional Outcome Analysis Engine**:
+    *   **Action:** Create a master function, `analyze_signal_outcomes`.
+    *   **Methodology:** This function will take a potent signal as input. It will programmatically segment the signal's historical values into deciles (10% quantiles). For each decile, it will calculate the resulting distribution of outcomes, computing the `Probability of Gain`, `Estimated ROI`, and `Estimated Volatility`. It will then assign a prescriptive `Action` (e.g., 'Strong Buy', 'Sell') based on the decile.
+3.  **6.3: Generate Company-Specific Rulebooks**:
+    *   **Action:** Create a loop that iterates through each company (`AAPL`, `NVDA`, `GOOGL`).
+    *   **Methodology:** Inside the loop, run the `analyze_signal_outcomes` function for every potent signal relevant to that specific company. The results for each company will be stored separately, creating three distinct, machine-readable rulebooks.
+4.  **6.4: Synthesize and Display Actionable Rules**:
+    *   **Action:** For each company, create a final summary markdown cell.
+    *   **Methodology:** This cell will display a clean, formatted, and styled table presenting the most actionable rules (e.g., only 'Buy'/'Sell' signals). The table will be organized by investment horizon and will clearly state the `Signal`, `Condition`, `Action`, `Timing`, `Probability of Gain`, `Estimated ROI`, and `Estimated Volatility`, providing a clear and final prescriptive guide for stakeholders.
+
+**Next Steps:** The generated rulebooks serve as a powerful standalone prescriptive tool. They also provide a robust baseline and feature validation for more complex predictive ensemble models planned in future phases.

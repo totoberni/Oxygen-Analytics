@@ -1,5 +1,9 @@
-# Avoid exporting working data dir to Git
-Notebooks/Analyst Sentiment/Data/
+# Ignore all data and dataset directories, wherever they are
+**/Data/
+**/Datasets/
 
-# Avoid committing secrets
-.env
+# Ignore all output directories
+**/out/
+
+# Ignore all environment secret files
+**/.env
